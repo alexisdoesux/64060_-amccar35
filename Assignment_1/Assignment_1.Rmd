@@ -17,6 +17,7 @@ Cereals <- read_excel("~/Desktop/BA64060/Cereals.xlsx")
 # Quantitative Variable: Calories
 I grouped the calories of Cereal brands by variable.
 ```{r}
+summary(Cereals$calories)
 ```
 **Findings:** The Cereal brands with the fewest calories has 50 calories. 25% of cereals have 100 or fewer calories. Half of the cereals are greater or fewer than 110 calories. Average calories across most brands are 106.9 and 75% of cereals have 110 or fewer calories.
 
