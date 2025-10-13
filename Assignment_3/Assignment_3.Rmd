@@ -1,0 +1,222 @@
+---
+title: "Assignment 3 - Universal Bank"
+author: "Alexis McCartney"
+date: "2025-10-13"
+output:
+  pdf_document:
+    latex_engine: xelatex
+header-includes:
+  - \usepackage{upquote}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## ------------------------------
+## Assignment 3 — Part A 
+## ------------------------------
+
+```{r load-data}
+# Knit-safe loader (no dialogs)
+csv_path <- "UniversalBank.csv"
+if (!file.exists(csv_path)) {
+  stop("Missing file: UniversalBank.csv. Put the CSV in the same folder as this Rmd, then knit again.")
+}
+df <- read.csv(csv_path, check.names = TRUE, stringsAsFactors = FALSE)
+
+# quick check
+nrow(df); ncol(df)
+```
+
+```{r make-train, include=FALSE}
+# Create training/validation sets so later parts have 'train'
+set.seed(42)
+n <- nrow(df)
+idx <- sample.int(n, floor(0.60 * n))
+train <- df[idx, ]
+valid <- df[-idx, ]
+
+# Make factors so tables work reliably
+train$Online        <- factor(train$Online,        levels = c(0, 1))
+train$CreditCard    <- factor(train$CreditCard,    levels = c(0, 1))
+train$Personal.Loan <- factor(train$Personal.Loan, levels = c(0, 1))
+```
+
+```{r part-a-pivot}
+# Build pivot for Part A (rows: CC + Loan; cols: Online)
+tab3 <- with(train, table(CC = CreditCard, Loan = Personal.Loan, Online = Online))
+tab_df <- as.data.frame(tab3)  # CC, Loan, Online, Freq
+
+pivot_wide <- reshape(tab_df,
+                      idvar   = c("CC", "Loan"),
+                      timevar = "Online",
+                      direction = "wide")
+
+# Tidy names and replace NAs with 0
+names(pivot_wide)[names(pivot_wide) == "Freq.0"] <- "Online_0"
+names(pivot_wide)[names(pivot_wide) == "Freq.1"] <- "Online_1"
+if (!"Online_0" %in% names(pivot_wide)) pivot_wide$Online_0 <- 0L
+if (!"Online_1" %in% names(pivot_wide)) pivot_wide$Online_1 <- 0L
+pivot_wide$Online_0[is.na(pivot_wide$Online_0)] <- 0L
+pivot_wide$Online_1[is.na(pivot_wide$Online_1)] <- 0L
+
+# Order rows and print
+pivot_wide <- pivot_wide[order(pivot_wide$CC, pivot_wide$Loan), ]
+cat("\n== Pivot table (Training Set) ==\n")
+print(pivot_wide, row.names = FALSE)
+
+# Save pivot (optional)
+out_path <- file.path(getwd(), "pivot_table_partA.csv")
+write.csv(pivot_wide, out_path, row.names = FALSE)
+cat("\nSaved pivot to: ", out_path, "\n", sep = "")
+
+# Interpretation
+cat("\n**My Interpretation (Part A)**\n",
+    "Online users (Online=1) appear more frequently across CC/Loan groups than offline users.\n",
+    "Credit card holders who are online show slightly higher loan-acceptance counts.\n",
+    sep = "")
+```
+
+## ------------------------------
+## Assignment 3 — Part B
+## ------------------------------
+
+```{r part-b}
+cat("\n== Part B: Conditional Probability ==\n")
+
+# P(Loan=1 | CC=1, Online=1) from the pivot
+cc1_rows <- subset(pivot_wide, CC == 1)
+numerator <- cc1_rows$Online_1[cc1_rows$Loan == 1]
+denominator <- sum(cc1_rows$Online_1)
+prob_loan_given_cc1_online1 <- numerator / denominator
+
+cat("P(Loan=1 | CC=1, Online=1) = ", round(prob_loan_given_cc1_online1, 4), "\n", sep = "")
+
+cat("\n**My Interpretation (Part B)**\n",
+    "Given CC=1 and Online=1, the sample conditional probability of accepting the loan is about ",
+    round(100*prob_loan_given_cc1_online1, 2), "%.\n", sep = "")
+```
+
+## ------------------------------
+## Assignment 3 — Part C
+## ------------------------------
+
+```{r part-c}
+cat("\n== Part C: Pivot Tables for Loan vs Online and Loan vs Credit Card ==\n")
+
+pivot_loan_online <- with(train, table(Loan = Personal.Loan, Online = Online))
+cat("\nPivot Table 1: Loan (rows) x Online (columns)\n")
+print(pivot_loan_online)
+
+pivot_loan_cc <- with(train, table(Loan = Personal.Loan, CreditCard = CreditCard))
+cat("\nPivot Table 2: Loan (rows) x CreditCard (columns)\n")
+print(pivot_loan_cc)
+
+write.csv(as.data.frame(pivot_loan_online),
+          file.path(getwd(), "pivot_Loan_vs_Online.csv"),
+          row.names = FALSE)
+write.csv(as.data.frame(pivot_loan_cc),
+          file.path(getwd(), "pivot_Loan_vs_CreditCard.csv"),
+          row.names = FALSE)
+
+cat("\n**My Interpretation (Part C)**\n",
+    "Loan=1 counts are slightly higher among Online=1 and CC=1.\n", sep = "")
+```
+
+## ------------------------------
+## Assignment 3 — Part D 
+## ------------------------------
+
+```{r part-d}
+cat("\n== Part D: Conditional Probabilities ==\n")
+
+p_cc1_given_loan1    <- mean(train$CreditCard[train$Personal.Loan == 1] == 1)
+p_online1_given_loan1<- mean(train$Online[train$Personal.Loan == 1] == 1)
+p_loan1              <- mean(train$Personal.Loan == 1)
+
+p_cc1_given_loan0    <- mean(train$CreditCard[train$Personal.Loan == 0] == 1)
+p_online1_given_loan0<- mean(train$Online[train$Personal.Loan == 0] == 1)
+p_loan0              <- mean(train$Personal.Loan == 0)
+
+cat("\nP(CC=1 | Loan=1)  =", round(p_cc1_given_loan1, 4),
+    "\nP(Online=1 | Loan=1) =", round(p_online1_given_loan1, 4),
+    "\nP(Loan=1) =", round(p_loan1, 4),
+    "\nP(CC=1 | Loan=0)  =", round(p_cc1_given_loan0, 4),
+    "\nP(Online=1 | Loan=0) =", round(p_online1_given_loan0, 4),
+    "\nP(Loan=0) =", round(p_loan0, 4), "\n")
+
+cat("\n**My Interpretation (Part D)**\n",
+    "Acceptors have slightly higher Online=1; differences are modest overall.\n", sep = "")
+```
+
+## ------------------------------
+## Assignment 3 — Part E (Naive Bayes)
+## ------------------------------
+
+```{r part-e}
+cat("\n== Part E: Naive Bayes P(Loan=1 | CC=1, Online=1) ==\n")
+
+nb_num <- p_cc1_given_loan1 * p_online1_given_loan1 * p_loan1
+nb_den <- nb_num + (p_cc1_given_loan0 * p_online1_given_loan0 * p_loan0)
+nb_prob <- nb_num / nb_den
+
+cat("Naive Bayes estimate = ", round(nb_prob, 4), "\n", sep = "")
+cat("\n**My Interpretation (Part E)**\n",
+    "Under conditional independence, the NB probability is close to the sample conditional from Part B.\n", sep = "")
+```
+
+## ------------------------------
+## Assignment 3 — Part F (Comparison)
+## ------------------------------
+
+```{r part-f}
+# Ensure the Part B value exists
+if (!exists("prob_loan_given_cc1_online1")) {
+  cc1_rows <- subset(pivot_wide, CC == 1)
+  numerator <- cc1_rows$Online_1[cc1_rows$Loan == 1]
+  denominator <- sum(cc1_rows$Online_1)
+  prob_loan_given_cc1_online1 <- numerator / denominator
+}
+
+cat("\n== Part F: Compare Naive Bayes vs Empirical Probability ==\n")
+cat("Empirical P(Loan=1 | CC=1, Online=1) =", round(prob_loan_given_cc1_online1, 4), "\n")
+cat("Naive Bayes P(Loan=1 | CC=1, Online=1) =", round(nb_prob, 4), "\n")
+
+difference <- abs(nb_prob - prob_loan_given_cc1_online1)
+cat("\nDifference =", round(difference, 4), "\n")
+
+cat("\n**My Interpretation (Part F)**\n",
+    "The pivot-based estimate is the exact sample conditional; NB is a close model-based approximation.\n",
+    sep = "")
+```
+
+## ------------------------------
+## Assignment 3 — Part G (Naive Bayes Model)
+## ------------------------------
+
+```{r part-g}
+cat("\n== Part G: Naive Bayes model & comparison ==\n")
+
+cat("\nEntries needed for P(Loan=1 | CC=1, Online=1):\n",
+    "P(CC=1 | Loan=1), P(Online=1 | Loan=1), P(Loan=1),\n",
+    "P(CC=1 | Loan=0), P(Online=1 | Loan=0), P(Loan=0)\n", sep="")
+
+# Ensure e1071 is available
+if (!requireNamespace("e1071", quietly = TRUE)) install.packages("e1071")
+library(e1071)
+
+# Fit NB model
+nb_model <- naiveBayes(Personal.Loan ~ CreditCard + Online, data = train)
+print(nb_model)
+
+# Predict for CC=1, Online=1
+new_customer <- data.frame(CreditCard = factor(1, levels = c(0,1)),
+                           Online     = factor(1, levels = c(0,1)))
+pred_nb <- predict(nb_model, new_customer, type = "raw")
+
+cat("\nNB model P(Loan=1 | CC=1, Online=1) = ", round(pred_nb[,'1'], 4), "\n", sep = "")
+cat("\n**My Interpretation (Part G)**\n",
+    "The model-based probability matches the manual NB calculation from Part E, confirming consistency.\n",
+    sep = "")
+```
