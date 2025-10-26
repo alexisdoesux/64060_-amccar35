@@ -1,0 +1,228 @@
+---
+title: "Assignment_4"
+author: "Alexis McCartney"
+date: "October 25, 2025"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 2
+    number_sections: true
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{longtable}
+  - \usepackage{caption}
+  - \captionsetup[figure]{labelfont=bf}
+  - \captionsetup[table]{labelfont=bf}
+---
+
+**About**  
+This report applies k-means clustering to data for 21 pharmaceutical firms using nine financial measures.  
+Variables are standardized to equalize scale. The number of clusters (*k*) is chosen using elbow and silhouette diagnostics.  
+Cluster profiles are interpreted and patterns in variables not used for clustering are examined.
+
+## (A) Clustering with Numerical Variables (1–9)
+
+**Method & justification.**  
+Nine financial measures (Market Cap, Beta, P/E, ROE, ROA, Asset Turnover, Leverage, Revenue Growth, Net Profit Margin) are standardized so each has equal weight.  
+K-means is run with multiple starts (`nstart = 50`) and *k* is chosen via elbow & silhouette diagnostics.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, message=TRUE, warning=TRUE,
+    fig.width=7, fig.height=4.5)
+
+# If CSV not found when knitting, set your project root:
+# knitr::opts_knit$set(root.dir="~/Desktop/Assignment_4")
+
+# Ensure TinyTeX exists so PDF knitting works
+if(!requireNamespace("tinytex",quietly=TRUE)) install.packages("tinytex")
+if(requireNamespace("tinytex",quietly=TRUE) && !tinytex::is_tinytex()) tinytex::install_tinytex()
+
+# Packages
+if(!requireNamespace("cluster",quietly=TRUE)) install.packages("cluster")
+library(cluster)
+
+# Simple table helper
+kbl <- function(x, caption=NULL){
+  knitr::kable(x, caption=caption, booktabs=TRUE, digits=2, align="l")
+}
+```
+
+### 1) Import data
+```{r import}
+Pharmaceuticals <- read.csv("Pharmaceuticals.csv", header=TRUE, stringsAsFactors=FALSE)
+stopifnot(is.data.frame(Pharmaceuticals))
+```
+
+### 2) Select numeric features
+```{r select-numeric}
+num_cols <- c("Market_Cap","Beta","PE_Ratio","ROE","ROA",
+              "Asset_Turnover","Leverage","Rev_Growth","Net_Profit_Margin")
+Pharma_numeric <- Pharmaceuticals[, num_cols]
+```
+
+### 3) Coerce to numeric (clean commas, % etc.)
+```{r coerce-numeric}
+Pharma_numeric <- as.data.frame(lapply(Pharma_numeric, function(x){
+  x <- gsub(",", "", as.character(x))
+  x <- gsub("%", "", x)
+  x <- trimws(x)
+  suppressWarnings(as.numeric(x))
+}))
+stopifnot(all(sapply(Pharma_numeric, is.numeric)))
+```
+
+### 4) Median-impute NAs
+```{r impute}
+for(j in seq_len(ncol(Pharma_numeric))){
+  if(anyNA(Pharma_numeric[[j]])){
+    Pharma_numeric[[j]][is.na(Pharma_numeric[[j]])] <- median(Pharma_numeric[[j]], na.rm=TRUE)
+  }
+}
+```
+
+### 5) Drop zero/undefined-variance columns
+```{r drop-zero-var}
+sds <- sapply(Pharma_numeric, sd)
+drop_cols <- names(sds)[!is.finite(sds) | sds==0]
+if(length(drop_cols)>0){
+  message("Dropping: ", paste(drop_cols, collapse=", "))
+  Pharma_numeric <- Pharma_numeric[, setdiff(names(Pharma_numeric), drop_cols), drop=FALSE]
+}
+```
+
+### 6) Standardize (z-scores)
+```{r scale}
+Pharma_scaled <- scale(Pharma_numeric)
+stopifnot(all(is.finite(as.matrix(Pharma_scaled))))
+set.seed(123)
+```
+
+### Elbow plot
+```{r elbow, fig.cap="Elbow Plot"}
+wss <- sapply(1:8, function(k){
+  kmeans(Pharma_scaled, centers=k, nstart=50, iter.max=100)$tot.withinss
+})
+plot(1:8, wss, type="b", xlab="k", ylab="Total WSS", main="Elbow Plot")
+```
+
+### Silhouette plot
+```{r silhouette, fig.cap="Silhouette Mean by k"}
+sil_mean <- sapply(2:8, function(k){
+  km <- kmeans(Pharma_scaled, centers=k, nstart=50, iter.max=100)
+  ss <- silhouette(km$cluster, dist(Pharma_scaled))
+  mean(ss[,3])
+})
+plot(2:8, sil_mean, type="b", xlab="k", ylab="Mean Silhouette", main="Silhouette Plot")
+```
+
+### 7) Choose k
+```{r choose-k}
+K_CHOSEN <- 3
+K_CHOSEN
+```
+
+### 8) Fit final k-means
+```{r fit-kmeans}
+set.seed(123)
+km_final <- kmeans(Pharma_scaled, centers=K_CHOSEN, nstart=50, iter.max=100)
+```
+
+### Add cluster labels
+```{r labels}
+Pharmaceuticals$Cluster <- factor(km_final$cluster)
+```
+
+### Cluster sizes and centers
+```{r core-results}
+sizes <- km_final$size
+centers <- round(km_final$centers, 2)
+kbl(data.frame(Cluster=seq_along(sizes), Size=sizes), caption="Cluster Sizes")
+kbl(as.data.frame(centers), caption="Standardized Cluster Centers (z-scores)")
+```
+
+### Unscaled means by cluster
+```{r cluster-profile}
+cluster_profile <- aggregate(Pharma_numeric, by=list(Cluster=Pharmaceuticals$Cluster), mean)
+cluster_profile_fmt <- cluster_profile
+cluster_profile_fmt[-1] <- lapply(cluster_profile_fmt[-1], function(x) round(x,2))
+kbl(cluster_profile_fmt, caption="Unscaled Feature Means by Cluster")
+```
+
+## (B) Interpret the Clusters
+
+Cluster 1 – Large efficient profitable firms (high ROE/ROA, high asset turnover, low leverage).  
+Cluster 2 – Mid-caps with higher P/E and moderate profitability (priced for growth).  
+Cluster 3 – Small volatile firms (high beta & leverage; low profitability).
+
+```{r cluster-profiles-plot, fig.cap="Cluster Profiles (Standardized)"}
+centers_df <- as.data.frame(km_final$centers)
+centers_df$Cluster <- factor(rownames(centers_df))
+var_names <- setdiff(names(centers_df), "Cluster")
+
+centers_long <- data.frame(
+  Cluster = rep(centers_df$Cluster, each=length(var_names)),
+  Variable = rep(var_names, times=nrow(centers_df)),
+  z = unlist(centers_df[var_names], use.names=FALSE)
+)
+
+plot(centers_long$z ~ interaction(centers_long$Cluster, centers_long$Variable),
+     xlab="Cluster.Variable", ylab="Standardized Mean (z)",
+     main="Cluster Profiles (Standardized)", pch=16, las=2, cex.axis=0.7)
+abline(h=0, lty=2)
+```
+
+## (C) Variables Not Used for Clustering (10–12)
+
+```{r ensure-types}
+for(j in 10:11){
+  x <- Pharmaceuticals[[j]]
+  x <- gsub(",", "", as.character(x))
+  x <- gsub("%", "", x)
+  Pharmaceuticals[[j]] <- suppressWarnings(as.numeric(x))
+}
+Pharmaceuticals$Median_Recommendation <- as.factor(Pharmaceuticals$Median_Recommendation)
+```
+
+### Numeric means by cluster
+```{r num-means}
+num_means <- aggregate(Pharmaceuticals[,10:11],
+                       by=list(Cluster=Pharmaceuticals$Cluster),
+                       mean, na.rm=TRUE)
+num_means_fmt <- num_means
+num_means_fmt[-1] <- lapply(num_means_fmt[-1], function(x) round(x,2))
+kbl(num_means_fmt, caption="Numeric Variables (10–11): Means by Cluster")
+```
+
+### Categorical distribution by cluster
+```{r cat-dist}
+tab_reco <- table(Pharmaceuticals$Cluster, Pharmaceuticals$Median_Recommendation)
+prop_reco <- round(prop.table(tab_reco,1),2)
+kbl(as.data.frame.matrix(tab_reco), caption="Counts of Median_Recommendation by Cluster")
+kbl(as.data.frame.matrix(prop_reco), caption="Row Proportions of Median_Recommendation by Cluster")
+```
+
+## (D) Cluster Names
+```{r name-clusters}
+cluster_names <- c(
+  "1"="Profitable Large-Cap",
+  "2"="Valuation-Growth Mid-Cap",
+  "3"="Levered Small-Cap"
+)
+Pharmaceuticals$Cluster_Name <- cluster_names[as.character(Pharmaceuticals$Cluster)]
+```
+
+### Firms by Named Cluster
+```{r firms-by-cluster}
+split(Pharmaceuticals$Name, Pharmaceuticals$Cluster_Name) |> lapply(sort) |> str()
+```
+
+
+
+
+
+
+
+
+
+
