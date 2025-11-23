@@ -1,0 +1,104 @@
+---
+title: "Assignment_5"
+author: "Alexis McCartney"
+date: "2025-11-23"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Question 1  
+Apply hierarchical clustering using Euclidean distance and compare single, complete, average, and Ward’s linkage. Choose the best method.
+
+```{r}
+library(cluster)
+
+# Read data
+cereals <- read.csv("Cereals.csv")
+
+# Data preprocessing: remove missing values, keep numeric variables, standardize them
+cereals_clean <- na.omit(cereals)
+cereals_num <- cereals_clean[, sapply(cereals_clean, is.numeric)]
+cereals_norm <- scale(cereals_num)
+
+# Compare linkage methods
+agnes_single   <- agnes(cereals_norm, method = "single")
+agnes_complete <- agnes(cereals_norm, method = "complete")
+agnes_average  <- agnes(cereals_norm, method = "average")
+agnes_ward     <- agnes(cereals_norm, method = "ward")
+
+# Show agglomerative coefficients
+agnes_single$ac
+agnes_complete$ac
+agnes_average$ac
+agnes_ward$ac
+
+# Plot Ward's method
+plot(agnes_ward, main = "Ward’s Method")
+```
+
+  
+I compared four linkage methods using the `agnes()` function. The agglomerative coefficient was highest for **Ward’s method**, which means it created the cleanest and most well-defined clusters. Ward’s method tries to keep the clusters tight, and based on both the numbers and the dendrogram, it clearly performed the best.
+
+---
+
+# Question 2  
+How many clusters would you choose?
+
+  
+Looking at the dendrogram for Ward’s method, the biggest jump in height happens right before the data split into **four main branches**, so I chose **4 clusters**.
+
+---
+
+# Question 3  
+Comment on the structure of the clusters and their stability.
+
+```{r}
+# Partition the dataset into A and B
+set.seed(123)
+index <- sample(1:nrow(cereals_norm), nrow(cereals_norm) / 2)
+
+A <- cereals_norm[index, ]
+B <- cereals_norm[-index, ]
+
+# Cluster A
+agnes_A <- agnes(A, method = "ward")
+clusters_A <- cutree(agnes_A, k = 4)
+table(clusters_A)
+
+# Compute centroids for A
+centroids_A <- aggregate(A, by = list(cluster = clusters_A), mean)
+centroids_mat <- as.matrix(centroids_A[, -1])
+
+# Assign records in B to nearest centroid
+dist_B_to_centroids <- as.matrix(dist(rbind(centroids_mat, B)))[-(1:4), 1:4]
+assigned_B <- apply(dist_B_to_centroids, 1, which.min)
+table(assigned_B)
+
+# Full-data clusters for comparison
+full_clusters <- cutree(agnes_ward, k = 4)
+full_clusters_B <- full_clusters[-index]
+
+table(assigned_B, full_clusters_B)
+```
+
+ 
+The clusters in Partition A were fairly balanced, and when I checked stability by assigning Partition B cereals to the nearest centroid, most cereals matched their full-data cluster. Clusters 2, 3, and 4 were very stable. Cluster 1 had a little overlap with Cluster 4, which suggests those cereals sit close together. Overall, the clustering looked stable.
+
+---
+
+# Question 4  
+Identify the "healthy cereal" cluster.
+
+ 
+Cluster **1** came out as the “healthy” group. These cereals had lower sugars and calories, and higher protein and fiber, which makes them good options for elementary school cafeterias.
+
+---
+
+# Question 5  
+Should the data be normalized?
+
+  
+Yes. The variables are all on different scales, and without normalization, the variables with large ranges (like sodium) would dominate the clustering. Normalizing ensures all the nutritional variables contribute fairly.
